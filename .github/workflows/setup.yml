@@ -1,0 +1,368 @@
+name: Setup Project
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create all project files
+        run: |
+          mkdir -p app/src/main/java/com/example/explosion
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/xml
+          mkdir -p app/src/main/res/drawable
+          mkdir -p app/src/main/res/raw
+
+          cat > settings.gradle << 'EOF'
+          include ':app'
+          EOF
+
+          cat > build.gradle << 'EOF'
+          buildscript {
+              repositories { google(); mavenCentral() }
+              dependencies { classpath 'com.android.tools.build:gradle:8.2.0' }
+          }
+          allprojects {
+              repositories { google(); mavenCentral() }
+          }
+          EOF
+
+          cat > gradle.properties << 'EOF'
+          android.useAndroidX=true
+          org.gradle.jvmargs=-Xmx2048m
+          EOF
+
+          cat > app/build.gradle << 'EOF'
+          apply plugin: 'com.android.application'
+          android {
+              namespace 'com.example.explosion'
+              compileSdk 34
+              defaultConfig {
+                  applicationId "com.example.explosion"
+                  minSdk 23
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_1_8
+                  targetCompatibility JavaVersion.VERSION_1_8
+              }
+          }
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              package="com.example.explosion">
+              <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <application
+                  android:allowBackup="true"
+                  android:label="Explosion"
+                  android:theme="@android:style/Theme.Material.Light">
+                  <activity android:name=".MainActivity" android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+                  <service
+                      android:name=".ExplosionAccessibilityService"
+                      android:exported="true"
+                      android:label="Explosion Effect"
+                      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+                      <intent-filter>
+                          <action android:name="android.accessibilityservice.AccessibilityService" />
+                      </intent-filter>
+                      <meta-data
+                          android:name="android.accessibilityservice"
+                          android:resource="@xml/accessibility_config" />
+                  </service>
+                  <service
+                      android:name=".ExplosionOverlayView"
+                      android:exported="false"
+                      android:foregroundServiceType="specialUse" />
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/res/values/strings.xml << 'EOF'
+          <resources>
+              <string name="app_name">Explosion</string>
+              <string name="accessibility_description">Эффект при тапе</string>
+          </resources>
+          EOF
+
+          cat > app/src/main/res/xml/accessibility_config.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+              android:accessibilityEventTypes="typeViewClicked|typeViewLongClicked"
+              android:accessibilityFeedbackType="feedbackGeneric"
+              android:accessibilityFlags="flagDefault"
+              android:canRetrieveWindowContent="true"
+              android:notificationTimeout="50"
+              android:description="@string/accessibility_description" />
+          EOF
+
+          cat > app/src/main/java/com/example/explosion/MainActivity.java << 'EOF'
+          package com.example.explosion;
+
+          import android.app.Activity;
+          import android.content.Intent;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.os.Bundle;
+          import android.provider.Settings;
+          import android.widget.Button;
+          import android.widget.LinearLayout;
+          import android.widget.TextView;
+          import android.widget.Toast;
+
+          public class MainActivity extends Activity {
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  LinearLayout layout = new LinearLayout(this);
+                  layout.setOrientation(LinearLayout.VERTICAL);
+                  layout.setPadding(50, 200, 50, 50);
+
+                  TextView title = new TextView(this);
+                  title.setText("Эффект при тапе\n\n1 - Разрешить оверлей\n2 - Включить службу\n3 - Запустить");
+                  title.setTextSize(18);
+                  layout.addView(title);
+
+                  Button overlayBtn = new Button(this);
+                  overlayBtn.setText("1. Разрешить оверлей");
+                  overlayBtn.setOnClickListener(v -> {
+                      if (!Settings.canDrawOverlays(this)) {
+                          Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                  Uri.parse("package:" + getPackageName()));
+                          startActivity(intent);
+                      } else {
+                          Toast.makeText(this, "Уже разрешено", Toast.LENGTH_SHORT).show();
+                      }
+                  });
+                  layout.addView(overlayBtn);
+
+                  Button accBtn = new Button(this);
+                  accBtn.setText("2. Включить службу");
+                  accBtn.setOnClickListener(v -> {
+                      startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+                      Toast.makeText(this, "Найди Explosion Effect и включи", Toast.LENGTH_LONG).show();
+                  });
+                  layout.addView(accBtn);
+
+                  Button startBtn = new Button(this);
+                  startBtn.setText("3. Запустить эффект");
+                  startBtn.setOnClickListener(v -> {
+                      Intent intent = new Intent(this, ExplosionOverlayView.class);
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                          startForegroundService(intent);
+                      } else {
+                          startService(intent);
+                      }
+                      Toast.makeText(this, "Готово! Сверни и тапай", Toast.LENGTH_LONG).show();
+                  });
+                  layout.addView(startBtn);
+
+                  setContentView(layout);
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/explosion/ExplosionAccessibilityService.java << 'EOF'
+          package com.example.explosion;
+
+          import android.accessibilityservice.AccessibilityService;
+          import android.view.accessibility.AccessibilityEvent;
+
+          public class ExplosionAccessibilityService extends AccessibilityService {
+              public static ExplosionAccessibilityService instance;
+              @Override
+              public void onServiceConnected() {
+                  super.onServiceConnected();
+                  instance = this;
+              }
+              @Override
+              public void onAccessibilityEvent(AccessibilityEvent event) {}
+              @Override
+              public void onInterrupt() {}
+              @Override
+              public void onDestroy() {
+                  super.onDestroy();
+                  instance = null;
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/explosion/ExplosionOverlayView.java << 'EOF'
+          package com.example.explosion;
+
+          import android.app.Notification;
+          import android.app.NotificationChannel;
+          import android.app.NotificationManager;
+          import android.app.Service;
+          import android.content.Intent;
+          import android.graphics.Bitmap;
+          import android.graphics.BitmapFactory;
+          import android.graphics.Canvas;
+          import android.graphics.Paint;
+          import android.graphics.PixelFormat;
+          import android.media.AudioAttributes;
+          import android.media.SoundPool;
+          import android.os.Build;
+          import android.os.Handler;
+          import android.os.IBinder;
+          import android.os.Looper;
+          import android.view.Gravity;
+          import android.view.MotionEvent;
+          import android.view.View;
+          import android.view.WindowManager;
+
+          import java.util.ArrayList;
+          import java.util.Iterator;
+          import java.util.List;
+
+          public class ExplosionOverlayView extends Service {
+              private WindowManager windowManager;
+              private View overlayView;
+              private final List<PopImage> pops = new ArrayList<>();
+              private final Handler handler = new Handler(Looper.getMainLooper());
+              private boolean running = true;
+              private Bitmap popBitmap;
+              private SoundPool soundPool;
+              private int soundId;
+
+              @Override
+              public IBinder onBind(Intent intent) { return null; }
+
+              @Override
+              public void onCreate() {
+                  super.onCreate();
+                  windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+                  popBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.pop);
+                  if (popBitmap != null) {
+                      popBitmap = Bitmap.createScaledBitmap(popBitmap, 300, 300, true);
+                  }
+                  AudioAttributes attrs = new AudioAttributes.Builder()
+                          .setUsage(AudioAttributes.USAGE_GAME)
+                          .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                          .build();
+                  soundPool = new SoundPool.Builder().setMaxStreams(5).setAudioAttributes(attrs).build();
+                  soundId = soundPool.load(this, R.raw.pop, 1);
+                  startForeground(1, createNotification());
+                  createOverlay();
+                  startLoop();
+              }
+
+              private Notification createNotification() {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      NotificationChannel ch = new NotificationChannel("expl", "Effect", NotificationManager.IMPORTANCE_LOW);
+                      getSystemService(NotificationManager.class).createNotificationChannel(ch);
+                  }
+                  Notification.Builder b = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                          ? new Notification.Builder(this, "expl")
+                          : new Notification.Builder(this);
+                  return b.setContentTitle("Эффект активен").setSmallIcon(android.R.drawable.ic_menu_compass).build();
+              }
+
+              private void createOverlay() {
+                  overlayView = new View(this) {
+                      final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                      @Override
+                      protected void onDraw(Canvas canvas) {
+                          for (PopImage p : pops) {
+                              if (popBitmap != null) {
+                                  paint.setAlpha((int)(p.life * 255));
+                                  canvas.drawBitmap(popBitmap, p.x - popBitmap.getWidth()/2f, p.y - popBitmap.getHeight()/2f, paint);
+                              }
+                          }
+                      }
+                  };
+                  int type = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                          ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                          : WindowManager.LayoutParams.TYPE_PHONE;
+                  WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+                          WindowManager.LayoutParams.MATCH_PARENT,
+                          WindowManager.LayoutParams.MATCH_PARENT,
+                          type,
+                          WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                          PixelFormat.TRANSLUCENT);
+                  params.gravity = Gravity.TOP | Gravity.START;
+                  params.alpha = 0.8f;
+                  overlayView.setOnTouchListener((v, e) -> {
+                      if (e.getAction() == MotionEvent.ACTION_DOWN) {
+                          pops.add(new PopImage(e.getX(), e.getY()));
+                          soundPool.play(soundId, 1f, 1f, 1, 0, 1f);
+                      }
+                      return false;
+                  });
+                  windowManager.addView(overlayView, params);
+              }
+
+              private void startLoop() {
+                  handler.postDelayed(new Runnable() {
+                      @Override public void run() {
+                          if (!running) return;
+                          Iterator<PopImage> it = pops.iterator();
+                          while (it.hasNext()) {
+                              PopImage p = it.next();
+                              p.life -= 0.015f;
+                              if (p.life <= 0) it.remove();
+                          }
+                          if (overlayView != null) overlayView.invalidate();
+                          handler.postDelayed(this, 16);
+                      }
+                  }, 16);
+              }
+
+              @Override
+              public void onDestroy() {
+                  super.onDestroy();
+                  running = false;
+                  if (overlayView != null) windowManager.removeView(overlayView);
+                  if (soundPool != null) soundPool.release();
+              }
+
+              static class PopImage {
+                  float x, y, life = 1f;
+                  PopImage(float x, float y) { this.x = x; this.y = y; }
+              }
+          }
+          EOF
+
+          cat > .github/workflows/build.yml << 'EOF'
+          name: Build APK
+          on:
+            push:
+              branches: [ main ]
+            workflow_dispatch:
+          jobs:
+            build:
+              runs-on: ubuntu-latest
+              steps:
+                - uses: actions/checkout@v4
+                - uses: actions/setup-java@v4
+                  with:
+                    distribution: 'temurin'
+                    java-version: '17'
+                - uses: android-actions/setup-android@v3
+                - name: Build
+                  run: |
+                    gradle wrapper --gradle-version 8.5
+                    ./gradlew assembleDebug
+                - uses: actions/upload-artifact@v4
+                  with:
+                    name: app-apk
+                    path: app/build/outputs/apk/debug/*.apk
+          EOF
+
+          echo "All files created!"
