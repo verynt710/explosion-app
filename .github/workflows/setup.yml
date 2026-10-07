@@ -5,6 +5,9 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   setup:
     runs-on: ubuntu-latest
@@ -365,4 +368,8 @@ jobs:
                     path: app/build/outputs/apk/debug/*.apk
           EOF
 
-          echo "All files created!"
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add .
+          git commit -m "Create all project files"
+          git push
